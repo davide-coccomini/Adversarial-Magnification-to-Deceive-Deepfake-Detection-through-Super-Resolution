@@ -1,14 +1,14 @@
 training:
   lr: 0.01
   weight-decay: 0.0000001
-  bs: 64
-  val_bs: 64
+  bs: 32
+  val_bs: 32
   scheduler: 'steplr'
   gamma: 0.1
   step-size: 20
 
 test:
-  bs: 8
+  bs: 1
 
 model:
   image-size: 224

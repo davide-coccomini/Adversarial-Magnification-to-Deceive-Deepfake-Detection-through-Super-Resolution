@@ -28,14 +28,16 @@ if __name__ == "__main__":
                         help='Number of training epochs.')
     parser.add_argument('--workers', default=10, type=int,
                         help='Number of data loader workers.')
-    parser.add_argument('--data_path', default='../datasets/openforensics/Train_Faces', type=str,
+    parser.add_argument('--data_path', default='../deep_fakes/datasets/processed/crops_ff_minimized10', type=str,
                         help='Images directory')
-    parser.add_argument('--list_file', default="../datasets/openforensics/Train_poly.json", type=str,
+    parser.add_argument('--list_file', default="../deep_fakes/datasets/training_videos.csv", type=str,
                         help='Images List json file path)')
-    parser.add_argument('--val_data_path', default='../datasets/openforensics/Val_Faces', type=str,
+    parser.add_argument('--val_data_path', default='../deep_fakes/datasets/processed/crops_ff_minimized10', type=str,
                         help='Images directory')
-    parser.add_argument('--val_list_file', default="../datasets/openforensics/Val_poly.json", type=str,
+    parser.add_argument('--val_list_file', default="../deep_fakes/datasets/validation_videos.csv", type=str,
                         help='Images List json file path')
+    parser.add_argument('--dataset', default=1, type=int,
+                        help='Dataset to be processed (0: Openforensics; 1: FF++)')
     parser.add_argument('--resume', default='', type=str, metavar='PATH',
                         help='Path to latest checkpoint (default: none).')
     parser.add_argument('--model_name', type=str, default='model',
@@ -46,15 +48,17 @@ if __name__ == "__main__":
                         help="Maximum number of images to use for training (default: all).")
     parser.add_argument('--config', type=str, default='',
                         help="Which configuration to use. See into 'config' folder.")
+    parser.add_argument('--forgery_method', type=str, default='',
+                        help="")
     parser.add_argument('--model', type=int, default=0, 
-                        help="Which model architecture version to be trained")
+                        help="Which model architecture version to be trained (0: Swin, 1: Resnet, 2: EfficientNet")
     parser.add_argument('--patience', type=int, default=5, 
                         help="How many epochs wait before stopping for validation loss not improving.")
     parser.add_argument('--show_stats', type=bool, default=True, 
                         help="Show stats")
     parser.add_argument('--logger_name', default='runs/train',
                         help='Path to save the model and Tensorboard log.')
-    parser.add_argument('--gpu_id', default=1, type=int,
+    parser.add_argument('--gpu_id', default=0, type=int,
                         help='ID of GPU to be used.')
 
     opt = parser.parse_args()
@@ -83,40 +87,67 @@ if __name__ == "__main__":
 
     # Data loading
 
-    
-    f = open(opt.list_file)
-    annotations_json = dict(json.load(f))["annotations"]
-    images_paths = []
-    labels = []
-    for item in annotations_json:
-        item_path = os.path.join(opt.data_path, str(item["image_id"]))
-        label = item["category_id"]
+    if opt.dataset == 0:
+        f = open(opt.list_file)
+        annotations_json = dict(json.load(f))["annotations"]
+        images_paths = []
+        labels = []
+        for item in annotations_json:
+            item_path = os.path.join(opt.data_path, str(item["image_id"]))
+            label = item["category_id"]
+            
+            if os.path.exists(item_path):
+                for image in os.listdir(item_path):
+                    if "0" not in image:
+                        continue
+                    image_path = os.path.join(item_path, image)
+                    images_paths.append(image_path)
+                    labels.append(label)
+
+
+
+        f = open(opt.val_list_file)
+        annotations_json = dict(json.load(f))["annotations"]
+        val_images_paths = []
+        val_labels = []
+        for item in annotations_json:
+            item_path = os.path.join(opt.data_path, str(item["image_id"]))
+            label = item["category_id"]
+            
+            if os.path.exists(item_path):
+                for image in os.listdir(item_path):
+                    if "0" not in image:
+                        continue
+                    image_path = os.path.join(item_path, image)
+                    val_images_paths.append(image_path)
+                    val_labels.append(label)
+    elif opt.dataset == 1:
+        images_paths = []
+        labels = []
+        df_train = pd.read_csv(opt.list_file, names=["video", "label"], sep=" ")
         
-        if os.path.exists(item_path):
-            for image in os.listdir(item_path):
-                if "0" not in image:
-                    continue
-                image_path = os.path.join(item_path, image)
+        for index, row in df_train.iterrows():
+            video_path = os.path.join(opt.data_path, row["video"])
+            if opt.forgery_method not in video_path and "Original" not in video_path:
+                continue
+
+            for image_name in os.listdir(video_path):
+                image_path = os.path.join(video_path, image_name)
                 images_paths.append(image_path)
-                labels.append(label)
+                labels.append(row["label"])
 
-
-
-    f = open(opt.val_list_file)
-    annotations_json = dict(json.load(f))["annotations"]
-    val_images_paths = []
-    val_labels = []
-    for item in annotations_json:
-        item_path = os.path.join(opt.data_path, str(item["image_id"]))
-        label = item["category_id"]
-        
-        if os.path.exists(item_path):
-            for image in os.listdir(item_path):
-                if "0" not in image:
-                    continue
-                image_path = os.path.join(item_path, image)
+        val_images_paths = []
+        val_labels = []
+        df_val = pd.read_csv(opt.val_list_file, names=["video", "label"], sep=" ")
+        for index, row in df_val.iterrows():
+            video_path = os.path.join(opt.data_path, row["video"])
+            if opt.forgery_method not in video_path and "Original" not in video_path:
+                continue
+            for image_name in os.listdir(video_path):
+                image_path = os.path.join(video_path, image_name)
                 val_images_paths.append(image_path)
-                val_labels.append(label)
+                val_labels.append(row["label"])
+
 
     if opt.max_images > -1:
         images_paths = images_paths[:opt.max_images]
@@ -171,8 +202,8 @@ if __name__ == "__main__":
     lr_scheduler = CosineLRScheduler(
                 optimizer,
                 t_initial=num_steps,
-                lr_min=config['training']['lr'] * 1e-1,
-                cycle_limit=1,
+                lr_min=config['training']['lr'] * 1e-2,
+                cycle_limit=2,
                 t_in_epochs=False,
         )
 
@@ -267,12 +298,12 @@ if __name__ == "__main__":
             not_improved_loss = 0
 
         if previous_loss > total_val_loss:
-            torch.save(model.state_dict(), os.path.join(opt.model_path,  "Model_checkpoint" + str(t)))
+            torch.save(model.state_dict(), os.path.join(opt.model_path, opt.model_name + "_checkpoint" + str(t)))
 
         previous_loss = total_val_loss
          
 
-        fpr, tpr, th = metrics.roc_curve(val_labels, val_preds)
+        fpr, tpr, th = metrics.roc_curve(val_labels, [pred.item() for pred in val_preds])
         auc = metrics.auc(fpr, tpr)
         f1 = f1_score(val_labels, [round(pred.item()) for pred in val_preds])
 

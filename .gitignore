@@ -1,6 +1,7 @@
 outputs
 runs
-experiments.sh
+*.sh
 __pycache__
 models
+old_models
 preprocessing/__pycache__
