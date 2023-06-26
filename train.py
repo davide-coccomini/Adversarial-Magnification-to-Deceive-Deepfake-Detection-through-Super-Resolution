@@ -13,12 +13,14 @@ import collections
 from deepfakes_dataset import DeepFakesDataset
 from torchvision.models import resnet50, ResNet50_Weights
 import json
+import timm
 from progress.bar import ChargingBar
 from utils import check_correct, unix_time_millis
 from timm.scheduler.cosine_lr import CosineLRScheduler
 from datetime import datetime, timedelta
 from sklearn import metrics
 from sklearn.metrics import f1_score
+from transformers import ViTForImageClassification, ViTConfig
 
 if __name__ == "__main__":
     random.seed(42)
@@ -77,6 +79,10 @@ if __name__ == "__main__":
     elif opt.model == 1: 
         model = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2)
         model.fc = torch.nn.Linear(2048, config['model']['num-classes'])
+    elif opt.model == 2:
+        model = timm.create_model('xception', pretrained=True, num_classes = config['model']['num-classes'])
+    elif opt.model == 3:
+        model = ViTForImageClassification.from_pretrained('google/vit-base-patch16-224', ignore_mismatched_sizes=True, num_labels=config['model']['num-classes'])
 
     model = model.to(opt.gpu_id)
     model.train()
@@ -228,12 +234,16 @@ if __name__ == "__main__":
         total_batches = train_batches + val_batches
 
         bar = ChargingBar('EPOCH #' + str(t), max=(len(train_dl)+len(val_dl)))
-        for index, (images, labels) in enumerate(train_dl):
+        for index, (images, labels, _) in enumerate(train_dl):
             start_time = datetime.now()
             images = np.transpose(images, (0, 3, 1, 2))
             images = images.to(opt.gpu_id)
             labels = labels.unsqueeze(1).float()
+            
+
             y_pred = model(images)
+            if opt.model == 3:
+                y_pred = y_pred.logits
 
             y_pred = y_pred.cpu()
             loss = loss_fn(y_pred, labels)
@@ -267,12 +277,15 @@ if __name__ == "__main__":
         model.eval()
 
         
-        for index, (images, labels) in enumerate(val_dl):
+        for index, (images, labels, _) in enumerate(val_dl):
             images = np.transpose(images, (0, 3, 1, 2))
             images = images.to(opt.gpu_id)
             labels = labels.unsqueeze(1).float()
             with torch.no_grad():
                 val_pred = model(images)
+                    
+                if opt.model == 3:
+                    val_pred = val_pred.logits
                 val_pred = val_pred.cpu()
                 val_loss = loss_fn(val_pred, labels)
                 total_val_loss += round(val_loss.item(), 2)
@@ -298,6 +311,7 @@ if __name__ == "__main__":
             not_improved_loss = 0
 
         if previous_loss > total_val_loss:
+            os.makedirs(opt.model_path, exist_ok = True)
             torch.save(model.state_dict(), os.path.join(opt.model_path, opt.model_name + "_checkpoint" + str(t)))
 
         previous_loss = total_val_loss

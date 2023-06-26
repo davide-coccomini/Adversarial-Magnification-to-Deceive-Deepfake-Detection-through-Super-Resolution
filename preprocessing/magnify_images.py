@@ -9,7 +9,7 @@ from tqdm import tqdm
 import random
 
 def super_resolution(image, opt):
-    model = edsr_baseline(scale=2, pretrained=True)
+    model = edsr_baseline(scale=opt.scale_factor, pretrained=True)
     model = model.eval()
     model = model.to(opt.gpu_id)
     image = np.transpose(image, (2, 0, 1))
@@ -24,6 +24,7 @@ def resize_image(image, dim):
 
 
 def main():
+    random.seed(42)
     parser = argparse.ArgumentParser()
     parser.add_argument('--images_folder', default="../../deep_fakes/datasets/processed/crops_ff", type=str,
                         help='Images path')
@@ -32,9 +33,13 @@ def main():
     parser.add_argument('--dataset', default=1, type=int,
                         help='Dataset to be processed (0: Openforensics; 1: FF++)')
     parser.add_argument('--mode', default=0, type=int,
-                        help='Mode (0: Downscale; 1: Upscale)')
+                        help='Mode (0: Downscale; 1: Upscale, 2: Downscale Original Image Size)')
     parser.add_argument('--subsample', default=10, type=int,
                         help='How many images to pick from dataset')
+    parser.add_argument('--scale_factor', default=2, type=int,
+                        help='How many images to pick from dataset')
+    parser.add_argument('--save_original_image', default=False, action="store_true",
+                        help='')
     opt = parser.parse_args()
     print(opt)
     if opt.dataset == 0:
@@ -45,7 +50,7 @@ def main():
                 for image_name in os.listdir(identifier_path):
                     image_path = os.path.join(identifier_path, image_name)
                     image = resize_image(cv2.imread(image_path), (224, 224))
-                    lr_image = resize_image(image, (int(image.shape[0]/2), int(image.shape[1]/2)))
+                    lr_image = resize_image(image, (int(image.shape[0]/opt.scale_factor), int(image.shape[1]/opt.scale_factor)))
                     hr_image = super_resolution(lr_image, opt)
                     output_path = image_path.replace("Train_Faces", "Train_Faces_Magnified")
                     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -66,26 +71,42 @@ def main():
                     for image_name in image_names:
                         image_path = os.path.join(video_path, image_name)
                         image = cv2.imread(image_path)
-                        image = resize_image(image, (224, 224))
-                        if opt.mode == 0:
-                            output_path = image_path.replace("crops_ff", "crops_ff_minimized" + str(opt.subsample))
-                            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-                            cv2.imwrite(output_path, image)
+                        if opt.mode < 2:
+                            image = resize_image(image, (224, 224))
+                            if opt.mode == 0:
+                                if opt.save_original_image:
+                                    output_path = image_path.replace("crops_ff", "crops_ff_minimized" + str(opt.subsample))
+                                    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                                    cv2.imwrite(output_path, image)
 
-                            lr_image = resize_image(image, (int(image.shape[0]/2), int(image.shape[1]/2)))
-                            hr_image = super_resolution(lr_image, opt)
-                            output_path = image_path.replace("crops_ff", "crops_ff_minimized" + str(opt.subsample) + "_magnified")
-                            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-                            
-                            cv2.imwrite(output_path, hr_image)
+                                lr_image = resize_image(image, (int(image.shape[0]/opt.scale_factor), int(image.shape[1]/opt.scale_factor)))
+                                hr_image = super_resolution(lr_image, opt)
+                                output_path = image_path.replace("crops_ff", "crops_ff_minimized" + str(opt.subsample) + "_magnified_scale"+str(opt.scale_factor))
+                                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                                
+                                cv2.imwrite(output_path, hr_image)
+                            else:
+                                if opt.save_original_image:
+                                    output_path = image_path.replace("crops_ff", "crops_ff_minimized" + str(opt.subsample))
+                                    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                                    cv2.imwrite(output_path, image)
+                                hr_image = super_resolution(image, opt)
+                                lr_image = resize_image(hr_image, (int(hr_image.shape[0]/opt.scale_factor), int(hr_image.shape[1]/opt.scale_factor)))
+                                output_path = image_path.replace("crops_ff", "crops_ff_minimized" + str(opt.subsample) + "_magnified_v2_scale"+str(opt.scale_factor))
+                                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                                
+                                cv2.imwrite(output_path, lr_image)
                         else:
+                            if opt.save_original_image:
+                                output_path = image_path.replace("crops_ff", "crops_ff_minimized" + str(opt.subsample))
+                                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                                cv2.imwrite(output_path, image)
 
-                            hr_image = super_resolution(image, opt)
-                            lr_image = resize_image(hr_image, (int(hr_image.shape[0]/2), int(hr_image.shape[1]/2)))
-                            output_path = image_path.replace("crops_ff", "crops_ff_minimized" + str(opt.subsample) + "_magnified_v2")
+                            lr_image = resize_image(image, (int(image.shape[0]/opt.scale_factor), int(image.shape[1]/opt.scale_factor)))
+                            hr_image = super_resolution(lr_image, opt)
+                            output_path = image_path.replace("crops_ff", "crops_ff_minimized" + str(opt.subsample) + "_magnified_v3_scale"+str(opt.scale_factor))
                             os.makedirs(os.path.dirname(output_path), exist_ok=True)
-                            
-                            cv2.imwrite(output_path, lr_image)
+                            cv2.imwrite(output_path, hr_image)
 
                     pbar.update()
 

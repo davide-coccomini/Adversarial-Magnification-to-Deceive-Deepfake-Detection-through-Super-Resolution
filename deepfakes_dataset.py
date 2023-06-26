@@ -7,16 +7,18 @@ import uuid
 from albumentations import Compose, RandomBrightnessContrast, \
     HorizontalFlip, FancyPCA, HueSaturationValue, OneOf, ToGray, \
     ShiftScaleRotate, ImageCompression, PadIfNeeded, GaussNoise, GaussianBlur, Rotate
+from skimage.metrics import structural_similarity
 
 from transforms.albu import IsotropicResize
 
 class DeepFakesDataset(Dataset):
-    def __init__(self, images_paths, labels, image_size = 224, mode='train'):
+    def __init__(self, images_paths, labels, image_size = 224, mode='train', additional_path = []):
         self.x = images_paths
         self.y = labels
         self.n_samples = len(images_paths)
         self.mode = mode
         self.image_size = image_size
+        self.additional_path = additional_path
 
     def create_train_transforms(self, size):
         return Compose([
@@ -43,7 +45,8 @@ class DeepFakesDataset(Dataset):
     def __getitem__(self, index):
         image_path = self.x[index]
         image = cv2.imread(image_path)
-        
+
+
         if self.mode == 'train':
             transform = self.create_train_transforms(self.image_size)
         else:
@@ -51,8 +54,16 @@ class DeepFakesDataset(Dataset):
 
         image = transform(image=image)["image"]
         label = self.y[index]
+        if len(self.additional_path) > 0 and self.mode != 'train':
+            additional_image_path = image_path.replace(self.additional_path[0], self.additional_path[1])
+            additional_image = cv2.imread(additional_image_path, 1)
+            additional_image = transform(image=additional_image)["image"]
+            
+            (score, diff) = structural_similarity(image, additional_image, full=True, multichannel=True)
 
-        return torch.tensor(image, dtype=torch.float), torch.tensor(label)
+            return torch.tensor(image, dtype=torch.float), torch.tensor(label), image_path, torch.tensor(additional_image, dtype=torch.float), additional_image_path, score
+        else:
+            return torch.tensor(image, dtype=torch.float), torch.tensor(label), image_path
 
     
     def __len__(self):
